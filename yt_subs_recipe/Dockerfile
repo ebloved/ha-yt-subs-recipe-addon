@@ -1,24 +1,31 @@
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-# Системные зависимости
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Системные пакеты — Alpine apk
+RUN apk add --no-cache \
+        python3 \
+        py3-pip \
+        py3-virtualenv \
         ffmpeg \
-        curl \
-        ca-certificates \
         nodejs \
         jq \
-    && rm -rf /var/lib/apt/lists/*
+        ca-certificates
 
-# yt-dlp — всегда последняя версия
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-        -o /usr/local/bin/yt-dlp \
+# yt-dlp через busybox wget (не трогаем curl-shim HA)
+RUN wget -O /usr/local/bin/yt-dlp \
+        https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
+
+# Изолированное venv — обходит ограничения pip в Alpine
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir curl_cffi
 
 COPY app/ /app/
