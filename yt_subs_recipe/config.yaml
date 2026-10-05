@@ -1,5 +1,5 @@
 name: YT Subs → Recipe
-version: "1.0.1"
+version: "1.0.2"
 slug: yt_subs_recipe
 description: Скачивает субтитры YouTube Shorts и генерирует рецепт через Gemini
 url: https://github.com/ebloved/ha-yt-subs-recipe-addon
