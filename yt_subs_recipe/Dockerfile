@@ -1,7 +1,7 @@
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-# Системные пакеты — Alpine apk
+# Системные пакеты
 RUN apk add --no-cache \
         python3 \
         py3-pip \
@@ -9,9 +9,10 @@ RUN apk add --no-cache \
         ffmpeg \
         nodejs \
         jq \
-        ca-certificates
+        ca-certificates \
+        wget
 
-# yt-dlp через busybox wget (не трогаем curl-shim HA)
+# yt-dlp через wget
 RUN wget -O /usr/local/bin/yt-dlp \
         https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
@@ -20,7 +21,7 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-# Изолированное venv — обходит ограничения pip в Alpine
+# Изолированное venv
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 

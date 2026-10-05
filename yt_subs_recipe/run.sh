@@ -9,7 +9,10 @@ export GEMINI_PROXY="$(jq --raw-output '.gemini_proxy // ""' $CONFIG_PATH)"
 export SUB_LANGS="$(jq --raw-output '.sub_langs // "ru.*"' $CONFIG_PATH)"
 export COOKIES_FILE="$(jq --raw-output '.cookies_file // ""' $CONFIG_PATH)"
 
-# Регистрация Lovelace-ресурса (не блокирует запуск при ошибке)
-python3 /app/register_lovelace.py || true
+# Явно используем venv-python, чтобы был доступ к aiohttp
+VENV_PY=/opt/venv/bin/python3
 
-exec uvicorn main:app --host 0.0.0.0 --port 8000
+# Регистрация Lovelace-ресурса (не блокирует запуск при ошибке)
+$VENV_PY /app/register_lovelace.py || true
+
+exec /opt/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
