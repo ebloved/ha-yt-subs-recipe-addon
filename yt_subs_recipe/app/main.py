@@ -29,6 +29,22 @@ DOWNLOAD_DIR = Path("/downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 TEMPLATE_FILE = Path("/app/recipe_template.md")
 
+_TEMPLATE_CACHE: str | None = None
+
+
+def _load_template() -> str:
+    """Читает шаблон один раз и кэширует."""
+    global _TEMPLATE_CACHE
+    if _TEMPLATE_CACHE is None:
+        if TEMPLATE_FILE.exists():
+            _TEMPLATE_CACHE = TEMPLATE_FILE.read_text(encoding="utf-8")
+            print(f"[template] загружен из {TEMPLATE_FILE}, {len(_TEMPLATE_CACHE)} байт")
+        else:
+            _TEMPLATE_CACHE = ""
+            print(f"[template] НЕ НАЙДЕН по пути {TEMPLATE_FILE}")
+    return _TEMPLATE_CACHE
+
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODELS = [
     m.strip()
@@ -70,7 +86,7 @@ def extract_video_id(url: str) -> str | None:
 
 
 def clean_srt_text(raw: str) -> str:
-    """Убирает таймкоды, номера, теги и дубли из SRT/VTT."""
+    """Убирает таймкоды, теги и rolling-дубли из SRT/VTT."""
     raw = re.sub(r"^WEBVTT.*?\n\n", "", raw, flags=re.DOTALL)
     raw = re.sub(r"\d+\n\d{2}:\d{2}:\d{2}[.,]\d{3} --> .*?\n", "", raw)
     raw = re.sub(r"\d{2}:\d{2}:\d{2}[.,]\d{3} --> .*?\n", "", raw)
@@ -78,10 +94,24 @@ def clean_srt_text(raw: str) -> str:
     raw = re.sub(r"^[a-z-]+:.*$", "", raw, flags=re.MULTILINE)
 
     lines = [l.strip() for l in raw.splitlines() if l.strip()]
+
+    # Склеиваем "rolling" повторы: если текущая строка — префикс/суффикс
+    # предыдущей или наоборот, оставляем более длинную.
     cleaned: list[str] = []
     for line in lines:
-        if not cleaned or cleaned[-1] != line:
+        if not cleaned:
             cleaned.append(line)
+            continue
+        prev = cleaned[-1]
+        if line == prev:
+            continue
+        if line in prev:
+            continue
+        if prev in line:
+            cleaned[-1] = line
+            continue
+        cleaned.append(line)
+
     return " ".join(cleaned)
 
 
@@ -137,14 +167,27 @@ async def run_ytdlp(url: str, job_id: str) -> dict:
 
 
 RECIPE_PROMPT = """Ты — редактор кулинарных рецептов.
-Тебе дан текст из субтитров YouTube Shorts (возможно, с ошибками распознавания речи).
-Оформи его как Markdown-рецепт с YAML front matter:
-title, description, tags, servings, prep_time, cook_time, total_time,
-ingredients (name/amount/unit), steps, notes.
-Исправь очевидные ошибки распознавания. Не выдумывай данные, которых нет.
-Верни ТОЛЬКО Markdown, без пояснений и без обрамляющих ```.
+
+Тебе дан текст из субтитров YouTube Shorts (возможно, с ошибками распознавания речи) и пример правильно оформленного рецепта в формате YAML front matter + Markdown.
+
+Оформи результат в ТОЧНО ТАКОЙ ЖЕ структуре, как в примере ниже:
+- тот же набор полей в YAML front matter;
+- та же разбивка на секции (Ингредиенты / Шаги / Заметки);
+- тот же стиль записи количеств («500 г», «2 ст. л.», «по вкусу»);
+- те же ключи nutrition, если есть данные.
+
+Жёсткие правила:
+1. Исправляй только очевидные ошибки распознавания речи.
+2. НЕ выдумывай ингредиенты, количества, время, температуру и названия блюд, которых нет в тексте. Если ингредиент упомянут обобщённо («колбаска», «сыр»), пиши его как в тексте, без уточнений.
+3. Если каких-то полей нет — ставь `null` в YAML или «не указано» в тексте.
+4. Верни ТОЛЬКО итоговый Markdown, без пояснений и без обрамляющих ```.
+
+Пример оформления:
+
+{template}
 
 Текст субтитров:
+
 {text}
 """
 
@@ -153,7 +196,9 @@ async def call_gemini(text: str) -> tuple[str, str]:
     if not GEMINI_API_KEY:
         raise HTTPException(500, "GEMINI_API_KEY не задан в настройках add-on")
 
-    prompt = RECIPE_PROMPT.format(text=text)
+    template = _load_template()
+    prompt = RECIPE_PROMPT.format(template=template, text=text)
+
     last_error: Exception | None = None
 
     client_kwargs: dict = {"timeout": 60.0}
@@ -197,6 +242,7 @@ async def call_gemini(text: str) -> tuple[str, str]:
                         await asyncio.sleep(2**attempt)
 
     raise HTTPException(502, f"Все модели недоступны: {last_error}")
+
 
 # ---------- API ----------
 
@@ -297,6 +343,17 @@ async def health():
         "api_key": bool(GEMINI_API_KEY),
         "sub_langs": SUB_LANGS,
         "cookies": bool(COOKIES_FILE and os.path.exists(COOKIES_FILE)),
+    }
+
+
+@app.get("/api/debug-template")
+async def debug_template():
+    tmpl = _load_template()
+    return {
+        "path": str(TEMPLATE_FILE),
+        "exists": TEMPLATE_FILE.exists(),
+        "length": len(tmpl),
+        "preview": tmpl[:200],
     }
 
 
