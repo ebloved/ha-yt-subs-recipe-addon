@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 
 import aiofiles
-import aiohttp
+import httpx
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -156,7 +156,11 @@ async def call_gemini(text: str) -> tuple[str, str]:
     prompt = RECIPE_PROMPT.format(text=text)
     last_error: Exception | None = None
 
-    async with aiohttp.ClientSession() as session:
+    client_kwargs: dict = {"timeout": 60.0}
+    if GEMINI_PROXY:
+        client_kwargs["proxy"] = GEMINI_PROXY
+
+    async with httpx.AsyncClient(**client_kwargs) as client:
         for model in GEMINI_MODELS:
             for attempt in range(1, 4):
                 try:
@@ -171,14 +175,12 @@ async def call_gemini(text: str) -> tuple[str, str]:
                             "maxOutputTokens": 2000,
                         },
                     }
-                    kwargs = {"proxy": GEMINI_PROXY} if GEMINI_PROXY else {}
 
-                    async with session.post(url, json=payload, **kwargs) as resp:
-                        if resp.status in (503, 429):
-                            body = await resp.text()
-                            raise RuntimeError(f"{resp.status}: {body[:200]}")
-                        resp.raise_for_status()
-                        data = await resp.json()
+                    resp = await client.post(url, json=payload)
+                    if resp.status_code in (503, 429):
+                        raise RuntimeError(f"{resp.status_code}: {resp.text[:200]}")
+                    resp.raise_for_status()
+                    data = resp.json()
 
                     markdown = (
                         data["candidates"][0]["content"]["parts"][0]["text"]
@@ -195,7 +197,6 @@ async def call_gemini(text: str) -> tuple[str, str]:
                         await asyncio.sleep(2**attempt)
 
     raise HTTPException(502, f"Все модели недоступны: {last_error}")
-
 
 # ---------- API ----------
 
