@@ -1,0 +1,30 @@
+name: YT Subs → Recipe
+version: "1.0.0"
+slug: yt_subs_recipe
+description: Скачивает субтитры YouTube Shorts и генерирует рецепт через Gemini
+url: https://github.com/YOUR_USERNAME/ha-yt-subs-recipe-addon
+arch:
+  - aarch64
+  - amd64
+  - armv7
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8000
+ports:
+  8000/tcp: 8000
+ports_description:
+  8000/tcp: Порт для Lovelace-карты
+options:
+  gemini_api_key: ""
+  gemini_models: "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash"
+  gemini_proxy: ""
+  sub_langs: "ru.*"
+  cookies_file: ""
+schema:
+  gemini_api_key: password
+  gemini_models: str
+  gemini_proxy: str?
+  sub_langs: str
+  cookies_file: str?

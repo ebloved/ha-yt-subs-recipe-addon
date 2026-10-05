@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YT Subs → Recipe</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f0f0f; color: #e8e8e8;
+      min-height: 100vh; display: flex;
+      justify-content: center; align-items: flex-start;
+      padding: 32px 16px;
+    }
+    .card {
+      width: 100%; max-width: 720px;
+      background: #1a1a1a; border: 1px solid #2a2a2a;
+      border-radius: 16px; padding: 28px;
+    }
+    h1 { font-size: 1.3rem; margin-bottom: 6px; }
+    p.sub { color: #888; font-size: .9rem; margin-bottom: 20px; }
+    label { display: block; font-size: .85rem; color: #aaa; margin-bottom: 6px; }
+    input[type=url] {
+      width: 100%; padding: 12px 14px; font-size: 1rem;
+      background: #0f0f0f; border: 1px solid #333;
+      border-radius: 10px; color: #e8e8e8; outline: none;
+      transition: border-color .15s;
+    }
+    input[type=url]:focus { border-color: #4a9eff; }
+    input[type=url]:disabled { opacity: .6; }
+    .row { display: flex; gap: 10px; margin-top: 12px; }
+    button {
+      flex: 1; padding: 12px 18px; font-size: .95rem; font-weight: 600;
+      background: #4a9eff; color: #fff;
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: opacity .15s;
+    }
+    button.secondary { background: #2a2a2a; color: #e8e8e8; border: 1px solid #444; }
+    button.ghost { flex: 0 0 auto; background: transparent; color: #888; }
+    button:disabled { opacity: .5; cursor: wait; }
+    .status { margin-top: 18px; font-size: .9rem; color: #aaa; }
+    .files { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .file-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 14px; background: #0f0f0f;
+      border: 1px solid #2a2a2a; border-radius: 10px;
+      gap: 12px;
+    }
+    .file-row .name { font-size: .85rem; color: #ccc; word-break: break-all; }
+    .file-row a {
+      color: #4a9eff; text-decoration: none;
+      font-weight: 600; font-size: .9rem; white-space: nowrap;
+    }
+    .error {
+      color: #ff6b6b; margin-top: 14px; font-size: .9rem;
+      white-space: pre-wrap; padding: 10px 12px;
+      background: rgba(255, 107, 107, .08);
+      border-left: 3px solid #ff6b6b; border-radius: 8px;
+    }
+    .info { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; font-size: .8rem; }
+    .chip {
+      padding: 3px 10px; border-radius: 999px;
+      background: #2a2a2a; color: #aaa;
+    }
+    .chip code { color: #e8e8e8; }
+    pre.md {
+      margin-top: 14px; padding: 16px;
+      background: #0f0f0f; border: 1px solid #2a2a2a;
+      border-radius: 10px; font-size: .85rem;
+      line-height: 1.55; white-space: pre-wrap;
+      word-break: break-word; max-height: 520px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>YT Subs → Recipe</h1>
+    <p class="sub">Вставьте ссылку на YouTube Shorts — получите субтитры и рецепт в Markdown.</p>
+
+    <label for="url">Ссылка на YouTube Shorts</label>
+    <input id="url" type="url" placeholder="https://youtube.com/shorts/..." autocomplete="off">
+
+    <div class="row">
+      <button id="btn-all" onclick="run(true)">Скачать и сгенерировать</button>
+    </div>
+    <div class="row">
+      <button class="secondary" id="btn-subs" onclick="run(false)">Только субтитры</button>
+      <button class="secondary" id="btn-recipe" onclick="generateOnly()" disabled>Только рецепт</button>
+    </div>
+
+    <div class="status" id="status"></div>
+    <div class="error" id="error" style="display:none"></div>
+    <div class="info" id="info" style="display:none"></div>
+    <div class="files" id="files"></div>
+    <pre class="md" id="md" style="display:none"></pre>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    let currentJobId = "";
+
+    // Относительные пути — совместимо с ingress
+    const API_BASE = ".";
+
+    function resetUI() {
+      $('files').innerHTML = '';
+      $('error').style.display = 'none';
+      $('error').textContent = '';
+      $('md').style.display = 'none';
+      $('md').textContent = '';
+      $('status').textContent = '';
+      $('info').style.display = 'none';
+      $('info').innerHTML = '';
+    }
+
+    function setBusy(busy) {
+      $('btn-all').disabled = busy;
+      $('btn-subs').disabled = busy;
+      $('btn-recipe').disabled = busy || !currentJobId;
+    }
+
+    function showError(msg) {
+      $('error').textContent = msg;
+      $('error').style.display = 'block';
+    }
+
+    function showFiles(files) {
+      files.forEach(f => {
+        const row = document.createElement('div');
+        row.className = 'file-row';
+        const url = `${API_BASE}/${f.download_url}`;
+        row.innerHTML = `
+          <span class="name">${f.filename}</span>
+          <a href="${url}" download>Скачать</a>
+        `;
+        $('files').appendChild(row);
+      });
+    }
+
+    async function apiPost(path, formData) {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail ?? data;
+        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2));
+      }
+      return data;
+    }
+
+    async function run(generate) {
+      const url = $('url').value.trim();
+      resetUI();
+
+      if (!url) { showError('Введите ссылку'); return; }
+
+      setBusy(true);
+      $('status').textContent = 'Скачиваем субтитры…';
+
+      try {
+        const form = new FormData();
+        form.append('url', url);
+        const data = await apiPost('/api/download', form);
+
+        currentJobId = data.job_id;
+        $('status').textContent = `Скачано файлов: ${data.count}`;
+        $('info').style.display = 'flex';
+        $('info').innerHTML = `<span class="chip">job: <code>${data.job_id}</code></span>`;
+        showFiles(data.files);
+
+        if (!generate) {
+          setBusy(false);
+          return;
+        }
+
+        await generateRecipe(data.job_id);
+
+      } catch (e) {
+        showError('Ошибка: ' + e.message);
+        $('status').textContent = '';
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function generateOnly() {
+      if (!currentJobId) { showError('Сначала скачайте субтитры'); return; }
+      resetUI();
+      $('info').style.display = 'flex';
+      $('info').innerHTML = `<span class="chip">job: <code>${currentJobId}</code></span>`;
+      setBusy(true);
+      try {
+        await generateRecipe(currentJobId);
+      } catch (e) {
+        showError('Ошибка: ' + e.message);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function generateRecipe(jobId) {
+      $('status').textContent = 'Gemini генерирует рецепт…';
+
+      const form = new FormData();
+      form.append('job_id', jobId);
+      const data = await apiPost('/api/generate-recipe', form);
+
+      $('status').textContent = 'Готово.';
+      $('info').innerHTML += ` <span class="chip">model: <code>${data.model}</code></span>`;
+
+      $('md').textContent = data.markdown;
+      $('md').style.display = 'block';
+
+      const row = document.createElement('div');
+      row.className = 'file-row';
+      row.innerHTML = `
+        <span class="name">${data.file}</span>
+        <a href="${API_BASE}/${data.download_url}" download>Скачать .md</a>
+      `;
+      $('files').appendChild(row);
+    }
+
+    $('url').addEventListener('keydown', e => {
+      if (e.key === 'Enter') run(true);
+    });
+  </script>
+</body>
+</html>
